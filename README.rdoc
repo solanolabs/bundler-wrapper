@@ -1,0 +1,8 @@
+= Bundler-Wrapper
+
+Source is available at: https://github.com/solanolabs/bundler-wrapper
+
+== Copyright
+
+Copyright (c) 2015 Solano Labs, Inc. All Rights Reserved. See LICENSE.txt
+for further details.
