@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    bundler-wrapper (0.0.1)
+    bundler-wrapper (0.0.2)
       bundler (>= 1.5.0)
 
 GEM
