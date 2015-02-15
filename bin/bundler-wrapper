@@ -40,16 +40,21 @@ module BundlerWrapper
       end
 
       if argv.length < 1 || argv[0] != 'exec' then
+        env.each_pair do |k, v|
+          ENV[k.to_s] = v.to_s
+        end
         argv.unshift(bundle)
-        Kernel.exec(env, *argv)
-        return
+        Kernel.exec(*argv)
+        Kernel.exit!(255)
       end
 
       status, rerun = 255, false
 
       begin
-        IO.popen(env, bundle, *argv, opts) do |io|
-          io.each_line do |line|
+        rd, wr = IO.pipe
+
+        if Kernel.fork
+          rd.each_line do |line|
             $stdout.puts line
             ERROR_MESSAGES.each do |error_message|
               if line.include?(error_message) then
@@ -57,6 +62,15 @@ module BundlerWrapper
               end
             end
           end
+          rd.close
+          Process.wait
+
+        else
+          env.each_pair do |k, v|
+            ENV[k.to_s] = v.to_s
+          end
+          Kernel.exec(bundle, *argv)
+          Kernel.exit!(255)
         end
 
         status = $?
