@@ -3,6 +3,8 @@
 # Copyright (c) 2015 Solano Labs All Rights Reserved
 #
 
+require 'shellwords'
+
 module BundlerWrapper
   class BundlerWrapper
     MAX_RERUNS = 5
@@ -19,47 +21,15 @@ module BundlerWrapper
         end
         $stdout.puts "NOTICE: automatically retrying bundle command..."
         reruns += 1
+        Kernel.sleep(2+10*rand())
       end
       exit(255)
-    end
-
-    # This function is from ruby and covered by its copyright
-    def self.popen_run(cmd, opts, child_io, parent_io)
-      pid = spawn(*cmd, opts)
-      wait_thr = Process.detach(pid)
-      child_io.each {|io| io.close }
-      result = [*parent_io, wait_thr]
-      if defined? yield
-        begin
-          return yield(*result)
-        ensure
-          parent_io.each{|io| io.close unless io.closed?}
-          x = wait_thr.join
-        end
-      end
-      result
-    end
-
-    # This function is from ruby and covered by its copyright
-    def self.popen2e(*cmd, &block)
-      if Hash === cmd.last
-        opts = cmd.pop.dup
-      else
-        opts = {}
-      end
-
-      in_r, in_w = IO.pipe
-      opts[:in] = in_r
-      in_w.sync = true
-
-      out_r, out_w = IO.pipe
-      opts[[:out, :err]] = out_w
-      popen_run(cmd, opts, [in_r, out_w], [in_w, out_r], &block)
     end
 
     ERROR_MESSAGES = [
       'Gem::RemoteFetcher::FetchError:',
       'Errno::ETIMEDOUT:',
+      'Errno::ECONNRESET:',
       'Connection timed out - connect(2)'
     ]
 
@@ -84,9 +54,10 @@ module BundlerWrapper
       end
 
       status, rerun = 255, false
-      status = BundlerWrapper.popen2e(bundle, *argv) do |i, oe, t|
-        i.close
-
+      argv.unshift(bundle)
+      cmd = Shellwords.join(argv)
+      cmd += " 2>&1"
+      IO.popen(cmd, "r") do |oe|
         oe.each_line do |line|
           $stdout.puts line
           $stdout.flush
@@ -98,9 +69,9 @@ module BundlerWrapper
         end
 
         oe.close
-        t.value
       end
 
+      status = $?
       return [status.exitstatus, rerun]
     end
   end
