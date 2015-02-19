@@ -13,13 +13,48 @@ module BundlerWrapper
       reruns = 0
 
       while reruns < MAX_RERUNS do
-        ok, rerun = run_bundler(env, argv)
+        status, rerun = run_bundler(env, argv)
         if status == 0 || !rerun then
           exit(status)
         end
+        $stdout.puts "NOTICE: automatically retrying bundle command..."
         reruns += 1
       end
       exit(255)
+    end
+
+    # This function is from ruby and covered by its copyright
+    def self.popen_run(cmd, opts, child_io, parent_io)
+      pid = spawn(*cmd, opts)
+      wait_thr = Process.detach(pid)
+      child_io.each {|io| io.close }
+      result = [*parent_io, wait_thr]
+      if defined? yield
+        begin
+          return yield(*result)
+        ensure
+          parent_io.each{|io| io.close unless io.closed?}
+          x = wait_thr.join
+        end
+      end
+      result
+    end
+
+    # This function is from ruby and covered by its copyright
+    def self.popen2e(*cmd, &block)
+      if Hash === cmd.last
+        opts = cmd.pop.dup
+      else
+        opts = {}
+      end
+
+      in_r, in_w = IO.pipe
+      opts[:in] = in_r
+      in_w.sync = true
+
+      out_r, out_w = IO.pipe
+      opts[[:out, :err]] = out_w
+      popen_run(cmd, opts, [in_r, out_w], [in_w, out_r], &block)
     end
 
     ERROR_MESSAGES = [
@@ -39,7 +74,7 @@ module BundlerWrapper
         end
       end
 
-      if argv.length < 1 || argv[0] != 'exec' then
+      if argv.length < 1 || argv[0] != 'install' then
         env.each_pair do |k, v|
           ENV[k.to_s] = v.to_s
         end
@@ -49,35 +84,24 @@ module BundlerWrapper
       end
 
       status, rerun = 255, false
+      status = BundlerWrapper.popen2e(bundle, *argv) do |i, oe, t|
+        i.close
 
-      begin
-        rd, wr = IO.pipe
-
-        if Kernel.fork
-          rd.each_line do |line|
-            $stdout.puts line
-            ERROR_MESSAGES.each do |error_message|
-              if line.include?(error_message) then
-                rerun = true
-              end
+        oe.each_line do |line|
+          $stdout.puts line
+          $stdout.flush
+          ERROR_MESSAGES.each do |error_message|
+            if line.include?(error_message) then
+              rerun = true
             end
           end
-          rd.close
-          Process.wait
-
-        else
-          env.each_pair do |k, v|
-            ENV[k.to_s] = v.to_s
-          end
-          Kernel.exec(bundle, *argv)
-          Kernel.exit!(255)
         end
 
-        status = $?
-      rescue Exception => e
-        status = 255
+        oe.close
+        t.value
       end
-      return [status, rerun]
+
+      return [status.exitstatus, rerun]
     end
   end
 end
